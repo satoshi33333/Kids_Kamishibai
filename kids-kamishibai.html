@@ -1097,12 +1097,12 @@ body {
 <!-- Filter popup -->
 <div id="filter-popup" class="filter-popup hidden">
   <div class="filter-card">
-    <div class="filter-mascot">🦊</div>
-    <h3>ちょっとまって！</h3>
-    <p id="filter-message">そのことばは、ちがうことばにしてみよう！</p>
-    <div class="filter-suggestion" id="filter-suggestion">だいわりのことば</div>
+    <div class="filter-mascot" id="filter-mascot">🦊</div>
+    <h3 id="filter-title">ちょっと まってね！</h3>
+    <p id="filter-message">そのことばは、おともだちが かなしくなるかも しれないよ。<br>こんなことばに してみよう！</p>
+    <div class="filter-suggestion" id="filter-suggestion">ことばをかんがえているよ…</div>
     <div class="filter-btns">
-      <button class="btn-use-suggestion" onclick="hideFilterPopup(true)">このことばにする！ ✨</button>
+      <button class="btn-use-suggestion" onclick="hideFilterPopup(true)">このことばで つづける！ ✨</button>
     </div>
   </div>
 </div>
@@ -1490,9 +1490,16 @@ async function getFilterSuggestion(text) {
 function showFilterPopup(text, suggestion, callback) {
   state.filterSuggestion = suggestion;
   filterCallback = callback;
-  document.getElementById('filter-message').textContent =
-    `「${text.substring(0,15)}」は ちがうことばにしてみよう！`;
-  document.getElementById('filter-suggestion').textContent = `💡 「${suggestion}」はどう？`;
+  // キャラクターをランダムに変える
+  const mascots = ['🦊','🐰','🐻','🌟','🌈'];
+  document.getElementById('filter-mascot').textContent =
+    mascots[Math.floor(Math.random() * mascots.length)];
+  // メッセージは固定の子供向け文言（入力テキストは出さない）
+  document.getElementById('filter-message').innerHTML =
+    'そのことばは、おともだちが<br>かなしくなるかも しれないよ。<br>こんなことばは どうかな？ 👇';
+  document.getElementById('filter-suggestion').textContent = suggestion
+    ? `「${suggestion}」`
+    : 'もっと やさしいことばにしようね 🌸';
   document.getElementById('filter-popup').classList.remove('hidden');
 }
 
@@ -1545,7 +1552,7 @@ async function processTurn(text) {
   updateTurnDots();
 
   // Generate image
-  generateSceneImage(text, state.turns.length - 1);
+  await generateSceneImage(text, state.turns.length - 1);
 
   // Check if at max turns
   if (state.totalTurns >= state.maxTurns) {
@@ -1594,7 +1601,7 @@ async function generateAITurn() {
     updateTurnDots();
 
     // Generate image
-    generateSceneImage(response, state.turns.length - 1);
+    await generateSceneImage(response, state.turns.length - 1);
 
     if (state.totalTurns >= state.maxTurns) {
       setTimeout(() => document.getElementById('continue-popup').classList.remove('hidden'), 1000);
@@ -1642,15 +1649,25 @@ async function generateSceneImage(text, turnIdx) {
     });
 
     if (!res.ok) {
-      const errText = await res.text();
-      console.error('Image API error', res.status, errText);
-      showToast(`えのせいせいがうまくいかなかったよ (${res.status})`);
+      let errBody = '';
+      try { errBody = await res.text(); } catch(_) {}
+      let errMsg = '';
+      try {
+        const errJson = JSON.parse(errBody);
+        errMsg = errJson?.error?.message || errBody;
+      } catch(_) { errMsg = errBody; }
+      console.error('Image API error', res.status, errMsg);
+      showImageError(`HTTPエラー ${res.status}`, errMsg);
       return;
     }
 
     const data = await res.json();
     const imageData = data.data?.[0];
-    if (!imageData) { console.warn('No image data returned'); return; }
+    if (!imageData) {
+      console.warn('No image data in response:', data);
+      showImageError('データなし', JSON.stringify(data).substring(0, 100));
+      return;
+    }
 
     // gpt-image-1 returns b64_json (not url)
     const imgSrc = imageData.b64_json
@@ -1660,20 +1677,38 @@ async function generateSceneImage(text, turnIdx) {
     if (imgSrc) {
       state.turns[turnIdx].imageUrl = imgSrc;
       showSceneImage(imgSrc);
+    } else {
+      showImageError('画像URLなし', JSON.stringify(imageData).substring(0, 100));
     }
   } catch (e) {
     console.error('Image generation error:', e);
-    showToast('えのせいせいにしっぱいしたよ…');
+    showImageError('通信エラー', e.message || String(e));
   } finally {
     document.getElementById(overlayId).classList.add('hidden');
   }
+}
+
+function showImageError(title, detail) {
+  // プレースホルダーにエラー内容を表示
+  const ph = document.getElementById('scene-placeholder');
+  ph.style.display = 'flex';
+  ph.innerHTML = `
+    <div style="text-align:center;padding:20px;color:white;">
+      <div style="font-size:3rem;margin-bottom:8px;">😢</div>
+      <div style="font-size:1rem;font-weight:800;color:#FFD93D;margin-bottom:6px;">えがつくれなかったよ</div>
+      <div style="font-size:0.75rem;opacity:0.8;margin-bottom:4px;">${title}</div>
+      <div style="font-size:0.65rem;opacity:0.6;word-break:break-all;max-height:60px;overflow:hidden;">${detail}</div>
+    </div>`;
+  document.getElementById('scene-image').style.display = 'none';
+  showToast(`⚠️ えのせいせい: ${title}`);
 }
 
 function buildImagePrompt(context, currentText) {
   return `まんが日本昔ばなし（TBSアニメ1975年）のアニメスタイル。子供向けかみしばい絵本の1シーン。
 場面:「${currentText}」
 ストーリー背景:「${context.substring(0, 200)}」
-スタイル: 柔らかい水彩タッチ、丸くて可愛いキャラクター（丸い頭、小さな目、ぷっくりした頬）、明るい色彩、横長4:3構成、子供向けアニメ美術。英語テキストなし。`;
+スタイル: 柔らかい水彩タッチ、丸くて可愛いキャラクター（丸い頭、小さな目、ぷっくりした頬）、明るい色彩、横長4:3構成、子供向けアニメ美術。
+【絶対禁止】画像の中に文字・テキスト・ひらがな・カタカナ・漢字・アルファベット・数字・記号を一切含めないこと。pure illustration only, no text, no letters, no words, no writing, no captions of any kind anywhere in the image.`;
 }
 
 function showSceneImage(src) {
