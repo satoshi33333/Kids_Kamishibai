@@ -1626,23 +1626,34 @@ async function generateSceneImage(text, turnIdx) {
         model: 'gpt-image-1',
         prompt: imagePrompt,
         n: 1,
-        size: '1024x768',
-        quality: 'standard',
+        size: '1536x1024',   // gpt-image-1 valid: 1024x1024 | 1536x1024 | 1024x1536
+        quality: 'medium',   // gpt-image-1 valid: low | medium | high
       }),
     });
 
-    if (res.ok) {
-      const data = await res.json();
-      const imageData = data.data[0];
-      let imgSrc = imageData.url || (imageData.b64_json ? `data:image/png;base64,${imageData.b64_json}` : null);
+    if (!res.ok) {
+      const errText = await res.text();
+      console.error('Image API error', res.status, errText);
+      showToast(`えのせいせいがうまくいかなかったよ (${res.status})`);
+      return;
+    }
 
-      if (imgSrc) {
-        state.turns[turnIdx].imageUrl = imgSrc;
-        showSceneImage(imgSrc);
-      }
+    const data = await res.json();
+    const imageData = data.data?.[0];
+    if (!imageData) { console.warn('No image data returned'); return; }
+
+    // gpt-image-1 returns b64_json (not url)
+    const imgSrc = imageData.b64_json
+      ? `data:image/png;base64,${imageData.b64_json}`
+      : imageData.url || null;
+
+    if (imgSrc) {
+      state.turns[turnIdx].imageUrl = imgSrc;
+      showSceneImage(imgSrc);
     }
   } catch (e) {
-    console.warn('Image generation error:', e);
+    console.error('Image generation error:', e);
+    showToast('えのせいせいにしっぱいしたよ…');
   } finally {
     document.getElementById(overlayId).classList.add('hidden');
   }
