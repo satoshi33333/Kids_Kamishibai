@@ -829,6 +829,15 @@ body {
 .aw { width:3px; background:#333; border-radius:2px; animation: wave 0.6s ease-in-out infinite; }
 .aw:nth-child(2){animation-delay:0.1s;} .aw:nth-child(3){animation-delay:0.2s;}
 
+/* Ruby / furigana */
+ruby { ruby-align: center; }
+rt {
+  font-size: 0.55em;
+  color: var(--purple);
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
 /* UTILS */
 .hidden { display: none !important; }
 .mt-auto { margin-top: auto; }
@@ -1536,7 +1545,7 @@ async function processTurn(text) {
   const player = state.players[state.currentPlayerIdx];
 
   // Add to story log
-  addStoryBubble(player, text);
+  await addStoryBubble(player, text);
 
   const turnData = {
     playerIdx: state.currentPlayerIdx,
@@ -1584,7 +1593,7 @@ async function generateAITurn() {
       'あなたは優しい子供向け昔ばなしのナレーターです。4〜8歳の子供が理解できるように話してください。物語の続きの文章だけを出力してください。質問・確認・感想・「〜したいですか？」のような文は絶対に含めないでください。', 200);
 
     state.recognizedText = response;
-    addStoryBubble({ avatar: '✨', name: 'AIおはなし', role: 'ai' }, response);
+    await addStoryBubble({ avatar: '✨', name: 'AIおはなし', role: 'ai' }, response);
 
     // 🔊 AIターン直後に音声読み上げ
     speakText(response);
@@ -1724,15 +1733,45 @@ function showSceneImage(src) {
 // ============================================================
 //  STORY LOG
 // ============================================================
-function addStoryBubble(player, text) {
+async function addStoryBubble(player, text) {
   const log = document.getElementById('story-log');
   const div = document.createElement('div');
   div.className = `story-bubble${player.role === 'ai' ? ' ai-turn' : ''}`;
+  // まず仮表示
   div.innerHTML = `
     <div class="speaker-tag">${player.avatar} ${player.name}</div>
-    <div class="story-text">${text}</div>`;
+    <div class="story-text">${escapeHtml(text)}</div>`;
   log.appendChild(div);
   log.scrollTop = log.scrollHeight;
+
+  // ふりがなをつける（Anthropic APIがあるとき）
+  if (state.keys.anthropic) {
+    try {
+      const rubyHtml = await addFurigana(text);
+      div.querySelector('.story-text').innerHTML = rubyHtml;
+    } catch(e) { /* フォールバック：元テキストのまま */ }
+  }
+}
+
+function escapeHtml(str) {
+  return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+async function addFurigana(text) {
+  // 漢字が含まれていなければそのまま返す
+  if (!/[一-龯]/.test(text)) return escapeHtml(text);
+
+  const result = await callAnthropic([{
+    role: 'user',
+    content: `以下の文の漢字すべてにHTMLのrubyタグでふりがなをつけてください。
+出力はHTMLのみ（説明不要）。ひらがなのみはそのまま。
+例: 「猫が走る」→「<ruby>猫<rt>ねこ</rt></ruby>が<ruby>走<rt>はし</rt></ruby>る」
+
+文:「${text}」`
+  }], 'rubyタグ付きHTMLのみを出力する。前後の説明・引用符・コードブロック記号は不要。', 300);
+
+  // 安全のため script/style タグを除去
+  return result.replace(/<script[\s\S]*?<\/script>/gi,'').replace(/<style[\s\S]*?<\/style>/gi,'');
 }
 
 // ============================================================
