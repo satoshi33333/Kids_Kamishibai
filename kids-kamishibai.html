@@ -1195,6 +1195,15 @@ let currentSlide = 0;
 })();
 
 // ============================================================
+//  PRELOAD WEB SPEECH VOICES
+// ============================================================
+if ('speechSynthesis' in window) {
+  // Chromeはgetvoiceschangedイベントで声リストが取得できる
+  window.speechSynthesis.onvoiceschanged = () => window.speechSynthesis.getVoices();
+  window.speechSynthesis.getVoices(); // 初回呼び出し
+}
+
+// ============================================================
 //  SCREEN NAV
 // ============================================================
 function showScreen(id) {
@@ -1570,6 +1579,9 @@ async function generateAITurn() {
     state.recognizedText = response;
     addStoryBubble({ avatar: '✨', name: 'AIおはなし', role: 'ai' }, response);
 
+    // 🔊 AIターン直後に音声読み上げ
+    speakText(response);
+
     const turnData = {
       playerIdx: state.currentPlayerIdx,
       text: response,
@@ -1810,6 +1822,34 @@ async function playSlide(idx) {
   if (isPlaying) {
     await sleep(300);
     await playSlide(idx + 1);
+  }
+}
+
+// ============================================================
+//  SPEAK TEXT (ゲーム中のAI音声読み上げ)
+// ============================================================
+async function speakText(text) {
+  if (state.keys.google) {
+    // Google TTS優先
+    try {
+      await playGoogleTTS(text);
+      return;
+    } catch(e) {
+      console.warn('Google TTS error:', e);
+    }
+  }
+  // フォールバック: Web Speech API (ブラウザ内蔵)
+  if ('speechSynthesis' in window) {
+    window.speechSynthesis.cancel();
+    const utter = new SpeechSynthesisUtterance(text);
+    utter.lang = 'ja-JP';
+    utter.rate = 0.85;
+    utter.pitch = 1.1;
+    // ja-JP の声があれば使う
+    const voices = window.speechSynthesis.getVoices();
+    const jaVoice = voices.find(v => v.lang.startsWith('ja'));
+    if (jaVoice) utter.voice = jaVoice;
+    window.speechSynthesis.speak(utter);
   }
 }
 
