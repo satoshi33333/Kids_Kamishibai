@@ -829,6 +829,77 @@ body {
 .aw { width:3px; background:#333; border-radius:2px; animation: wave 0.6s ease-in-out infinite; }
 .aw:nth-child(2){animation-delay:0.1s;} .aw:nth-child(3){animation-delay:0.2s;}
 
+/* Art style selector */
+.style-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+.style-btn {
+  background: var(--white);
+  border: 3px solid #E0E0E0;
+  border-radius: 16px;
+  padding: 12px 8px;
+  cursor: pointer;
+  font-family: inherit;
+  text-align: center;
+  transition: all 0.2s;
+  color: var(--dark);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+.style-btn .style-icon { font-size: 2rem; }
+.style-btn .style-name { font-size: 0.85rem; font-weight: 800; }
+.style-btn .style-desc { font-size: 0.7rem; color: #888; font-weight: 400; }
+.style-btn:hover { transform: translateY(-2px); border-color: var(--sky); }
+.style-btn.selected {
+  background: linear-gradient(135deg, #E0F8FF, #E8E0FF);
+  border-color: var(--sky);
+  box-shadow: 0 4px 0 rgba(78,205,196,0.3);
+  transform: translateY(-2px);
+}
+
+/* Game screen art style switcher */
+.art-style-bar {
+  width: 100%;
+  max-width: 640px;
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  margin-bottom: 10px;
+  flex-wrap: wrap;
+}
+.art-style-bar .bar-label {
+  font-size: 0.75rem;
+  font-weight: 800;
+  color: #888;
+  white-space: nowrap;
+}
+.style-chip {
+  background: white;
+  border: 2px solid #E0E0E0;
+  border-radius: 50px;
+  padding: 5px 12px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  cursor: pointer;
+  font-family: inherit;
+  transition: all 0.15s;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--dark);
+}
+.style-chip:hover { border-color: var(--sky); }
+.style-chip.active {
+  background: linear-gradient(135deg, var(--sky), var(--purple));
+  border-color: transparent;
+  color: white;
+  box-shadow: 0 3px 8px rgba(78,205,196,0.4);
+}
+
 /* Ruby / furigana */
 ruby { ruby-align: center; }
 rt {
@@ -964,6 +1035,33 @@ rt {
   </div>
 
   <!-- API Keys (collapsible) -->
+  <!-- Art Style Select -->
+  <div class="setup-card" style="border-color:var(--sky);">
+    <h3>🎨 えのスタイルをえらぼう！</h3>
+    <div class="style-grid">
+      <button class="style-btn selected" onclick="selectArtStyle('mukashi')" id="artstyle-mukashi">
+        <span class="style-icon">🏮</span>
+        <span class="style-name">むかしばなし</span>
+        <span class="style-desc">まんが日本昔ばなし風</span>
+      </button>
+      <button class="style-btn" onclick="selectArtStyle('anime')" id="artstyle-anime">
+        <span class="style-icon">✨</span>
+        <span class="style-name">アニメ風</span>
+        <span class="style-desc">現代日本アニメ風</span>
+      </button>
+      <button class="style-btn" onclick="selectArtStyle('manga')" id="artstyle-manga">
+        <span class="style-icon">💥</span>
+        <span class="style-name">マンガ風</span>
+        <span class="style-desc">白黒・コミカル</span>
+      </button>
+      <button class="style-btn" onclick="selectArtStyle('western')" id="artstyle-western">
+        <span class="style-icon">🌟</span>
+        <span class="style-name">アメコミ風</span>
+        <span class="style-desc">ポップ・カラフル</span>
+      </button>
+    </div>
+  </div>
+
   <div class="api-section">
     <h3>🔑 APIキー（おとなのひと用）</h3>
     <div class="api-row">
@@ -1008,6 +1106,15 @@ rt {
         <div class="gen-spinner"></div>
         <div class="gen-text" id="gen-text">えをかいています…</div>
       </div>
+    </div>
+
+    <!-- Art style switcher -->
+    <div class="art-style-bar">
+      <span class="bar-label">🎨</span>
+      <button class="style-chip active" onclick="switchArtStyle('mukashi')" id="chip-mukashi">🏮 むかし</button>
+      <button class="style-chip" onclick="switchArtStyle('anime')" id="chip-anime">✨ アニメ</button>
+      <button class="style-chip" onclick="switchArtStyle('manga')" id="chip-manga">💥 マンガ</button>
+      <button class="style-chip" onclick="switchArtStyle('western')" id="chip-western">🌟 アメコミ</button>
     </div>
 
     <!-- Story log -->
@@ -1155,6 +1262,7 @@ let state = {
   keys: { anthropic: '', openai: '', google: '' },
   filterSuggestion: '',
   slideInterval: null,
+  artStyle: 'mukashi',  // mukashi | anime | manga | western
 };
 
 let currentSlide = 0;
@@ -1225,6 +1333,45 @@ function animateMascot(el) {
   el.textContent = emojis[Math.floor(Math.random() * emojis.length)];
   el.style.animation = 'none';
   setTimeout(() => el.style.animation = 'bounce 2s ease-in-out infinite', 50);
+}
+
+// ============================================================
+//  ART STYLE
+// ============================================================
+const ART_STYLES = {
+  mukashi: {
+    label: 'むかしばなし',
+    prompt: 'まんが日本昔ばなし（TBSアニメ1975年）スタイル。柔らかい水彩タッチ、丸い頭・小さな弧の目・丸いピンクの頬・鼻なし・ずんぐりした体のキャラクター、和風背景、暖かみのある色彩、子供向けかみしばい。'
+  },
+  anime: {
+    label: 'アニメ風',
+    prompt: '現代日本アニメスタイル（2020年代・明るい少年アニメ風）。大きなキラキラした瞳、鮮やかな色彩、丁寧な背景美術、柔らかいセルシェーディング、子供向け冒険アニメの1シーン。'
+  },
+  manga: {
+    label: 'マンガ風',
+    prompt: '日本マンガスタイル（少年漫画風）。大胆な線画、白黒にシンプルな色アクセント、デフォルメされたコミカルな表情、子供向けギャグマンガの1コマ風イラスト。'
+  },
+  western: {
+    label: 'アメコミ風',
+    prompt: 'アメリカンカートゥーンスタイル（カートゥーンネットワーク風）。太いアウトライン、ポップで鮮やかな原色、大げさな表情とポーズ、ユーモラスで元気いっぱいの子供向けイラスト。'
+  }
+};
+
+function selectArtStyle(style) {
+  state.artStyle = style;
+  // セットアップ画面のボタン同期
+  document.querySelectorAll('.style-btn').forEach(b => b.classList.remove('selected'));
+  document.getElementById('artstyle-' + style).classList.add('selected');
+  // ゲーム画面のチップも同期
+  document.querySelectorAll('.style-chip').forEach(c => c.classList.remove('active'));
+  const chip = document.getElementById('chip-' + style);
+  if (chip) chip.classList.add('active');
+}
+
+function switchArtStyle(style) {
+  // ゲーム中の切り替え（次のターンから反映）
+  selectArtStyle(style);
+  showToast(`🎨 つぎの え から「${ART_STYLES[style].label}」に なるよ！`);
 }
 
 // ============================================================
@@ -1713,10 +1860,12 @@ function showImageError(title, detail) {
 }
 
 function buildImagePrompt(context, currentText) {
-  return `まんが日本昔ばなし（TBSアニメ1975年）のアニメスタイル。子供向けかみしばい絵本の1シーン。
+  const styleKey = state.artStyle || 'mukashi';
+  const stylePrompt = ART_STYLES[styleKey]?.prompt || ART_STYLES.mukashi.prompt;
+  return `${stylePrompt}
 場面:「${currentText}」
 ストーリー背景:「${context.substring(0, 200)}」
-スタイル: 柔らかい水彩タッチ、丸くて可愛いキャラクター（丸い頭、小さな目、ぷっくりした頬）、明るい色彩、横長4:3構成、子供向けアニメ美術。
+構図: 横長4:3、子供向け絵本の1シーン。
 【絶対禁止】画像の中に文字・テキスト・ひらがな・カタカナ・漢字・アルファベット・数字・記号を一切含めないこと。pure illustration only, no text, no letters, no words, no writing, no captions of any kind anywhere in the image.`;
 }
 
