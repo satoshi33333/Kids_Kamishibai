@@ -382,6 +382,8 @@ body {
   border-left: 6px solid var(--pink);
   position: relative;
   min-height: 60px;
+  box-sizing: border-box;
+  overflow: hidden;          /* はみ出し防止 */
 }
 .story-bubble .speaker-tag {
   font-size: 0.8rem;
@@ -391,11 +393,17 @@ body {
   display: flex;
   align-items: center;
   gap: 6px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .story-bubble .story-text {
   font-size: 1.05rem;
-  line-height: 1.7;
+  line-height: 1.8;
   color: var(--dark);
+  word-break: break-all;     /* 長い文字列を折り返す */
+  overflow-wrap: break-word;
+  white-space: normal;
 }
 .story-bubble.ai-turn { border-left-color: var(--purple); }
 .story-bubble.ai-turn .speaker-tag { color: var(--purple); }
@@ -498,11 +506,16 @@ body {
   font-weight: 700;
   color: var(--dark);
   min-height: 50px;
+  max-height: 120px;
   width: 100%;
   text-align: center;
   display: flex;
   align-items: center;
   justify-content: center;
+  overflow-y: auto;
+  word-break: break-all;
+  overflow-wrap: break-word;
+  box-sizing: border-box;
 }
 
 .voice-action-row {
@@ -710,13 +723,20 @@ body {
 .finale-story-text {
   position: absolute;
   bottom: 0; left: 0; right: 0;
-  background: linear-gradient(transparent, rgba(0,0,0,0.85));
+  background: linear-gradient(transparent, rgba(0,0,0,0.88));
   color: white;
-  padding: 30px 20px 16px;
-  font-size: 1rem;
+  padding: 30px 16px 14px;
+  font-size: 0.95rem;
   font-weight: 700;
   line-height: 1.6;
   text-shadow: 1px 1px 3px black;
+  word-break: break-all;
+  overflow-wrap: break-word;
+  max-height: 45%;           /* 画像の45%以上は占めない */
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 4;     /* 最大4行 */
+  -webkit-box-orient: vertical;
 }
 
 .finale-controls {
@@ -901,13 +921,15 @@ body {
 }
 
 /* Ruby / furigana */
-ruby { ruby-align: center; }
+ruby { ruby-align: center; display: inline; }
 rt {
   font-size: 0.55em;
   color: var(--purple);
   font-weight: 700;
   letter-spacing: 0.02em;
 }
+/* ruby タグ内テキストも折り返す */
+.story-text ruby { word-break: break-all; }
 
 /* UTILS */
 .hidden { display: none !important; }
@@ -1615,21 +1637,44 @@ function submitFromText() {
 // ============================================================
 let filterCallback = null;
 
-const SIMPLE_FILTER_WORDS = ['ばか','うんち','うんこ','きもい','しね','ころす','きらい'];
+const SIMPLE_FILTER_WORDS = [
+  // ひらがな
+  'ばか','うんち','うんこ','きもい','しね','ころす','きらい','くそ','ちくしょう','あほ',
+  'むかつく','うざい','きえろ','いじめ',
+  // 漢字・暴力・死関連
+  '死','殺','血','暴力','地獄','地獄','自殺','殴','刺','爆','爆弾',
+  '出血','墓','死亡','死体','遺体','銃','刀','ナイフ'
+];
 
 async function checkAndFilter(text) {
-  // Quick local check
   const hasLocal = SIMPLE_FILTER_WORDS.some(w => text.includes(w));
 
-  if (hasLocal && state.keys.anthropic) {
-    try {
-      const suggestion = await getFilterSuggestion(text);
-      return { needsFilter: true, suggestion };
-    } catch(e) {}
+  if (hasLocal) {
+    if (state.keys.anthropic) {
+      try {
+        const suggestion = await getFilterSuggestion(text);
+        return { needsFilter: true, suggestion };
+      } catch(e) {}
+    }
+    return { needsFilter: true, suggestion: 'もっとやさしいことばにしようね！' };
   }
 
-  if (hasLocal) {
-    return { needsFilter: true, suggestion: 'もっとやさしいことばにしよう！' };
+  // ローカル辞書になくてもAnthropicがあればAIでもチェック（暴力・死・恐怖的表現を検出）
+  if (state.keys.anthropic) {
+    try {
+      const aiCheck = await callAnthropic([{
+        role: 'user',
+        content: `4〜8歳の子供向けゲームで不適切か判定してください。
+不適切な例：死・血・暴力・恐怖・差別・悪口・自殺など。
+テキスト:「${text}」
+不適切なら "NG:言い換え文" の形式で。問題なければ "OK" のみ。`
+      }], '判定結果のみ出力する。', 80);
+
+      if (aiCheck.startsWith('NG:')) {
+        const suggestion = aiCheck.replace(/^NG:/, '').trim();
+        return { needsFilter: true, suggestion: suggestion || 'やさしいことばにしようね！' };
+      }
+    } catch(e) {}
   }
 
   return { needsFilter: false };
@@ -1910,17 +1955,32 @@ async function addFurigana(text) {
   // 漢字が含まれていなければそのまま返す
   if (!/[一-龯]/.test(text)) return escapeHtml(text);
 
-  const result = await callAnthropic([{
-    role: 'user',
-    content: `以下の文の漢字すべてにHTMLのrubyタグでふりがなをつけてください。
-出力はHTMLのみ（説明不要）。ひらがなのみはそのまま。
-例: 「猫が走る」→「<ruby>猫<rt>ねこ</rt></ruby>が<ruby>走<rt>はし</rt></ruby>る」
+  try {
+    const result = await callAnthropic([{
+      role: 'user',
+      content: `以下の文の漢字にrubyタグでふりがなをつけてください。rubyタグとテキストのみ出力。説明・引用符・バッククォート不要。
+例: 猫が走る → <ruby>猫<rt>ねこ</rt></ruby>が<ruby>走<rt>はし</rt></ruby>る
+文: ${text}`
+    }], 'ruby/rtタグとプレーンテキストのみ出力する。', 300);
 
-文:「${text}」`
-  }], 'rubyタグ付きHTMLのみを出力する。前後の説明・引用符・コードブロック記号は不要。', 300);
+    // ruby・rt・テキストノード以外の全タグを除去して安全に
+    const sanitized = result
+      .replace(/```[\s\S]*?```/g, '')           // コードブロック除去
+      .replace(/`/g, '')                          // バッククォート除去
+      .replace(/「|」/g, '')                      // 鉤括弧除去
+      .replace(/<(?!\/?ruby|\/rt|rt)([^>]+)>/gi, '') // ruby/rt以外のタグ除去
+      .trim();
 
-  // 安全のため script/style タグを除去
-  return result.replace(/<script[\s\S]*?<\/script>/gi,'').replace(/<style[\s\S]*?<\/style>/gi,'');
+    // 最低限のチェック：元テキストの文字数と大きくずれていないか
+    const plainText = sanitized.replace(/<[^>]+>/g, '');
+    if (plainText.length < text.length * 0.3) {
+      // 明らかに壊れているので元テキストをエスケープして返す
+      return escapeHtml(text);
+    }
+    return sanitized;
+  } catch(e) {
+    return escapeHtml(text); // エラー時は常に元テキストをそのまま表示
+  }
 }
 
 // ============================================================
