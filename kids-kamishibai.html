@@ -376,20 +376,20 @@ body {
   max-width: 640px;
   background: white;
   border-radius: 20px;
-  padding: 16px 20px;
+  padding: 14px 18px 16px;
   margin-bottom: 12px;
   box-shadow: 0 4px 15px rgba(0,0,0,0.1);
   border-left: 6px solid var(--pink);
   position: relative;
   min-height: 60px;
   box-sizing: border-box;
-  overflow: hidden;          /* はみ出し防止 */
+  overflow: hidden;
 }
 .story-bubble .speaker-tag {
   font-size: 0.8rem;
   font-weight: 800;
   color: var(--pink);
-  margin-bottom: 4px;
+  margin-bottom: 6px;
   display: flex;
   align-items: center;
   gap: 6px;
@@ -398,10 +398,10 @@ body {
   text-overflow: ellipsis;
 }
 .story-bubble .story-text {
-  font-size: 1.05rem;
+  font-size: 1rem;
   line-height: 1.8;
   color: var(--dark);
-  word-break: break-all;     /* 長い文字列を折り返す */
+  word-break: break-all;
   overflow-wrap: break-word;
   white-space: normal;
 }
@@ -921,15 +921,7 @@ body {
 }
 
 /* Ruby / furigana */
-ruby { ruby-align: center; display: inline; }
-rt {
-  font-size: 0.55em;
-  color: var(--purple);
-  font-weight: 700;
-  letter-spacing: 0.02em;
-}
-/* ruby タグ内テキストも折り返す */
-.story-text ruby { word-break: break-all; }
+
 
 /* UTILS */
 .hidden { display: none !important; }
@@ -975,12 +967,13 @@ rt {
 .story-log {
   width: 100%;
   max-width: 640px;
-  max-height: 160px;
+  max-height: 180px;
+  overflow-x: visible;       /* ふりがなの左右はみ出しを許可 */
   overflow-y: auto;
   display: flex;
   flex-direction: column;
   gap: 8px;
-  padding-right: 4px;
+  padding: 4px 2px 4px 2px;
   margin-bottom: 12px;
   scroll-behavior: smooth;
 }
@@ -1825,7 +1818,7 @@ async function processTurn(text) {
   const player = state.players[state.currentPlayerIdx];
 
   // Add to story log
-  await addStoryBubble(player, text);
+  addStoryBubble(player, text);
 
   const turnData = {
     playerIdx: state.currentPlayerIdx,
@@ -1871,10 +1864,10 @@ async function generateAITurn() {
 
   try {
     const response = await callAnthropic([{ role: 'user', content: prompt }],
-      'あなたは優しい子供向け昔ばなしのナレーターです。4〜8歳の子供が理解できるように話してください。物語の続きの文章だけを出力してください。質問・確認・感想・「〜したいですか？」のような文は絶対に含めないでください。', 200);
+      'あなたは4〜8さいの こどもむけ ものがたりの ナレーターです。ルール：①ひらがなを メインに つかう（かんたんな かんじは OKだが できるだけ ひらがなで）②1〜2文のみ ③物語の つづきの文のみ出力 ④質問・確認・感想・「〜したいですか？」は 絶対に書かない', 200);
 
     state.recognizedText = response;
-    await addStoryBubble({ avatar: '✨', name: 'AIおはなし', role: 'ai' }, response);
+    addStoryBubble({ avatar: '✨', name: 'AIおはなし', role: 'ai' }, response);
 
     // 🔊 AIターン直後に音声読み上げ
     speakText(response);
@@ -2016,61 +2009,22 @@ function showSceneImage(src) {
 // ============================================================
 //  STORY LOG
 // ============================================================
-async function addStoryBubble(player, text) {
+function addStoryBubble(player, text) {
   const log = document.getElementById('story-log');
   const div = document.createElement('div');
   div.className = `story-bubble${player.role === 'ai' ? ' ai-turn' : ''}`;
-  // まず仮表示
   div.innerHTML = `
     <div class="speaker-tag">${player.avatar} ${player.name}</div>
     <div class="story-text">${escapeHtml(text)}</div>`;
   log.appendChild(div);
   log.scrollTop = log.scrollHeight;
-
-  // ふりがなをつける（Anthropic APIがあるとき）
-  if (state.keys.anthropic) {
-    try {
-      const rubyHtml = await addFurigana(text);
-      div.querySelector('.story-text').innerHTML = rubyHtml;
-    } catch(e) { /* フォールバック：元テキストのまま */ }
-  }
 }
 
 function escapeHtml(str) {
   return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 }
 
-async function addFurigana(text) {
-  // 漢字が含まれていなければそのまま返す
-  if (!/[一-龯]/.test(text)) return escapeHtml(text);
 
-  try {
-    const result = await callAnthropic([{
-      role: 'user',
-      content: `以下の文の漢字にrubyタグでふりがなをつけてください。rubyタグとテキストのみ出力。説明・引用符・バッククォート不要。
-例: 猫が走る → <ruby>猫<rt>ねこ</rt></ruby>が<ruby>走<rt>はし</rt></ruby>る
-文: ${text}`
-    }], 'ruby/rtタグとプレーンテキストのみ出力する。', 300);
-
-    // ruby・rt・テキストノード以外の全タグを除去して安全に
-    const sanitized = result
-      .replace(/```[\s\S]*?```/g, '')           // コードブロック除去
-      .replace(/`/g, '')                          // バッククォート除去
-      .replace(/「|」/g, '')                      // 鉤括弧除去
-      .replace(/<(?!\/?ruby|\/rt|rt)([^>]+)>/gi, '') // ruby/rt以外のタグ除去
-      .trim();
-
-    // 最低限のチェック：元テキストの文字数と大きくずれていないか
-    const plainText = sanitized.replace(/<[^>]+>/g, '');
-    if (plainText.length < text.length * 0.3) {
-      // 明らかに壊れているので元テキストをエスケープして返す
-      return escapeHtml(text);
-    }
-    return sanitized;
-  } catch(e) {
-    return escapeHtml(text); // エラー時は常に元テキストをそのまま表示
-  }
-}
 
 // ============================================================
 //  CONTINUE / FINISH
